@@ -1,0 +1,473 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ふいうち vs まもる 戦略アシスタント</title>
+<style>
+*{box-sizing:border-box}
+body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:#f4f6f8;margin:0;color:#222}
+main{max-width:760px;margin:auto;padding:16px}
+.card{background:#fff;border-radius:16px;padding:20px;margin:14px 0;box-shadow:0 2px 10px #0001}
+h1{margin-top:0}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.states{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.state{text-align:center;background:#f1f3f5;padding:12px;border-radius:10px}
+.big{font-size:25px;font-weight:800}
+input,button{width:100%;padding:14px 12px;border-radius:12px;font-size:17px;min-height:52px}
+input{border:1px solid #bbb}
+button{border:0;margin-top:8px;font-weight:700;cursor:pointer}
+button:disabled{opacity:.45;cursor:not-allowed}
+.actions{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.a{background:#d94b4b;color:white}.p{background:#4776d0;color:white}.t{background:#5c9b5c;color:white}
+.start,.end{background:#222;color:white}
+.result{text-align:center;font-size:21px;font-weight:800;padding:16px;background:#f1f3f5;border-radius:12px}.prob{font-size:20px;font-weight:800;margin:10px 0}.action-label{font-size:14px;color:#666;margin-bottom:6px}.hero-action{font-size:25px;padding:20px;border-radius:14px;background:#f1f3f5;text-align:center;font-weight:900}
+.bar{height:18px;background:#ddd;border-radius:20px;overflow:hidden;display:flex}
+.sbar{background:#d94b4b}.nbar{background:#555}
+.log{max-height:280px;overflow:auto;font-size:14px}
+.log div{padding:6px;border-bottom:1px solid #eee}
+.hidden{display:none}
+.turn{font-size:22px;font-weight:800;margin-bottom:12px}
+.protect-result{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.success{background:#4776d0;color:white}.failure{background:#d94b4b;color:white}
+.note{font-size:14px;color:#666}
+@media(max-width:600px){
+  body{background:#eef1f5}
+  main{padding:10px;max-width:100%}
+  .card{padding:15px;margin:9px 0;border-radius:14px}
+  h1{font-size:24px;margin:6px 0}
+  h2{font-size:19px;margin:8px 0 12px}
+  .grid{grid-template-columns:1fr}
+  .states{grid-template-columns:repeat(3,1fr);gap:6px}
+  .state{padding:10px 4px;font-size:13px;line-height:1.35}
+  .big{font-size:23px;margin-top:4px}
+  .actions{grid-template-columns:repeat(3,1fr);gap:7px}
+  .actions button{font-size:15px;padding:10px 4px;min-height:62px}
+  .turn{font-size:20px}
+  .hero-action{font-size:22px;padding:18px 10px}
+  .result{font-size:19px}
+  .protect-result{gap:8px}
+  .protect-result button{min-height:70px}
+  .log{max-height:220px}
+}
+@media(max-width:380px){
+  .states{grid-template-columns:1fr}
+  .state{display:flex;justify-content:space-between;align-items:center;padding:9px 12px}
+  .big{margin-top:0}
+  .actions button{font-size:14px}
+}
+</style>
+</head>
+
+<body>
+<main>
+<h1>ふいうち vs まもる</h1>
+<p>自分の最適混合戦略を計算し、各ターンの「自分のすべき行動」を表示します。</p>
+
+<section id="setup" class="card">
+<h2>ゲーム設定</h2>
+<div class="grid">
+<div>
+<label for="s0">自分のふいうちPP</label>
+<input id="s0" type="number" min="0" max="8" value="8">
+</div>
+<div>
+<label for="p0">相手のまもるPP</label>
+<input id="p0" type="number" min="0" max="8" value="8">
+</div>
+</div>
+<button class="start" onclick="start()">ゲーム開始</button>
+</section>
+
+<section id="game" class="hidden">
+
+<div class="card">
+<div id="turn" class="turn">【1ターン目】</div>
+<h2>現在の状態</h2>
+<div class="states">
+<div class="state">自分のふいうちPP<div id="S" class="big"></div></div>
+<div class="state">相手のまもるPP<div id="P" class="big"></div></div>
+<div class="state">相手のまもる連続回数<div id="K" class="big"></div></div>
+</div>
+</div>
+
+<div class="card">
+<h2>自分の最適混合戦略</h2>
+<p class="prob">ふいうち確率：<b id="sp"></b></p>
+<p class="prob">通常攻撃確率：<b id="np"></b></p>
+<div class="bar">
+<div id="sb" class="sbar"></div>
+<div id="nb" class="nbar"></div>
+</div>
+<p>自分の勝率：<b id="v"></b></p>
+</div>
+
+<div class="card">
+<h2>自分のすべき行動</h2>
+<div id="act" class="hero-action"></div>
+</div>
+
+<div id="choices" class="card">
+<h2 id="opponentTitle">相手の行動</h2>
+<p class="note">相手が実際に選んだ行動を入力してください。</p>
+<div class="actions">
+<button class="a" onclick="p2('A')">通常攻撃</button>
+<button id="protectButton" class="p" onclick="p2('P')">まもる</button>
+<button class="t" onclick="p2('T')">補助技</button>
+</div>
+<button class="end" onclick="finish('ゲームを終了しました。')">終了</button>
+</div>
+
+<div id="protectResult" class="card hidden">
+<h2>まもるの実際の結果</h2>
+<p>相手の「まもる」が実際に<strong>成功したか・失敗したか</strong>を入力してください。</p>
+<div class="protect-result">
+<button class="success" onclick="protectOutcome('S')">まもる成功</button>
+<button class="failure" onclick="protectOutcome('F')">まもる失敗</button>
+</div>
+</div>
+
+<div id="result" class="card hidden">
+<div id="msg" class="result"></div>
+<button class="start" onclick="location.reload()">もう一度</button>
+</div>
+
+<div class="card">
+<h2>履歴</h2>
+<div id="log" class="log"></div>
+</div>
+
+</section>
+</main>
+
+<script>
+// ============================================================
+// Python Fraction に相当する正確な有理数計算
+// ============================================================
+class F{
+    constructor(n,d=1n){
+        n=BigInt(n); d=BigInt(d);
+        if(d<0n){n=-n;d=-d}
+        const g=gcd(abs(n),d);
+        this.n=n/g; this.d=d/g;
+    }
+    add(x){x=f(x);return new F(this.n*x.d+x.n*this.d,this.d*x.d)}
+    sub(x){x=f(x);return new F(this.n*x.d-x.n*this.d,this.d*x.d)}
+    mul(x){x=f(x);return new F(this.n*x.n,this.d*x.d)}
+    div(x){x=f(x);return new F(this.n*x.d,this.d*x.n)}
+    cmp(x){
+        x=f(x);
+        const z=this.n*x.d-x.n*this.d;
+        return z<0n?-1:z>0n?1:0;
+    }
+    num(){return Number(this.n)/Number(this.d)}
+}
+function f(x){return x instanceof F?x:new F(x)}
+function abs(x){return x<0n?-x:x}
+function gcd(a,b){while(b!==0n){const t=a%b;a=b;b=t}return a}
+const Z=new F(0n), O=new F(1n);
+
+function minF(arr){
+    return arr.reduce((a,b)=>a.cmp(b)<=0?a:b);
+}
+
+function solveMatrix2x3(A){
+    const candidates=[];
+
+    for(const x of [Z,O]){
+        const payoffs=[0,1,2].map(j =>
+            x.mul(A[0][j]).add(O.sub(x).mul(A[1][j]))
+        );
+        candidates.push({value:minF(payoffs),x});
+    }
+
+    const pairs=[[0,1],[0,2],[1,2]];
+
+    for(const [i,j] of pairs){
+        const a=A[0][i].sub(A[1][i]);
+        const b=A[1][i];
+        const c=A[0][j].sub(A[1][j]);
+        const d=A[1][j];
+        const denominator=a.sub(c);
+
+        if(denominator.n===0n) continue;
+
+        const x=d.sub(b).div(denominator);
+
+        if(x.cmp(Z)>=0 && x.cmp(O)<=0){
+            const payoffs=[0,1,2].map(col =>
+                x.mul(A[0][col]).add(O.sub(x).mul(A[1][col]))
+            );
+            candidates.push({value:minF(payoffs),x});
+        }
+    }
+
+    return candidates.reduce((a,b)=>
+        a.value.cmp(b.value)>=0?a:b
+    );
+}
+
+// ============================================================
+// 各状態の最適戦略
+// S = 自分のふいうちPP
+// P = 相手のまもるPP
+// k = 相手のまもる連続使用回数
+// ============================================================
+const cache=new Map();
+
+function solve(S,P,k){
+    const key=`${S},${P},${k}`;
+    if(cache.has(key)) return cache.get(key);
+
+    if(S===0){
+        if(P===0){
+            const r={value:Z,sucker:Z};
+            cache.set(key,r);
+            return r;
+        }
+
+        const q=new F(1n,3n**BigInt(k));
+        const next=solve(0,P-1,k+1);
+        const protect=O.sub(q).add(q.mul(next.value));
+        const value=minF([Z,O,protect]);
+        const r={value,sucker:Z};
+        cache.set(key,r);
+        return r;
+    }
+
+    if(P===0){
+        const nextValue=solve(S-1,0,0).value;
+
+        const A=[
+            [O,nextValue],
+            [Z,O]
+        ];
+
+        const denominator=A[0][0]
+            .sub(A[0][1])
+            .sub(A[1][0])
+            .add(A[1][1]);
+
+        if(denominator.n!==0n){
+            let x=A[1][1].sub(A[1][0]).div(denominator);
+            if(x.cmp(Z)<0)x=Z;
+            if(x.cmp(O)>0)x=O;
+
+            const value1=x.mul(A[0][0]).add(O.sub(x).mul(A[1][0]));
+            const value2=x.mul(A[0][1]).add(O.sub(x).mul(A[1][1]));
+            const value=value1.cmp(value2)<=0?value1:value2;
+
+            const r={value,sucker:x};
+            cache.set(key,r);
+            return r;
+        }
+    }
+
+    const q=new F(1n,3n**BigInt(k));
+
+    const suckerProtect=
+        O.sub(q).add(
+            q.mul(solve(S-1,P-1,k+1).value)
+        );
+
+    const normalProtect=
+        O.sub(q).add(
+            q.mul(solve(S,P-1,k+1).value)
+        );
+
+    const A=[
+        [
+            O,
+            solve(S-1,P,0).value,
+            suckerProtect
+        ],
+        [
+            Z,
+            O,
+            normalProtect
+        ]
+    ];
+
+    const z=solveMatrix2x3(A);
+    const r={value:z.value,sucker:z.x};
+    cache.set(key,r);
+    return r;
+}
+
+// ============================================================
+// ゲーム状態
+// ============================================================
+let S=8;
+let P=8;
+let K=0;
+let turn=1;
+let myAction=null;
+let waitingProtectResult=false;
+let over=false;
+
+function fmtPct(x){
+    return (x.num()*100).toFixed(3) + "%";
+}
+
+function writeLog(text){
+    const div=document.createElement("div");
+    div.textContent=text;
+    const log=document.getElementById("log");
+    log.appendChild(div);
+    log.scrollTop=log.scrollHeight;
+}
+
+function updateScreen(){
+    const z=solve(S,P,K);
+    const sp=z.sucker.num();
+    const np=1-sp;
+
+    document.getElementById("turn").textContent=`【${turn}ターン目】`;
+
+    document.getElementById("S").textContent=S;
+    document.getElementById("P").textContent=P;
+    document.getElementById("K").textContent=K;
+
+    document.getElementById("sp").textContent=fmtPct(z.sucker);
+    document.getElementById("np").textContent=fmtPct(O.sub(z.sucker));
+    document.getElementById("v").textContent=fmtPct(z.value);
+
+    document.getElementById("sb").style.width=(sp*100)+"%";
+    document.getElementById("nb").style.width=(np*100)+"%";
+
+    // まもるPPが0なら、まもるボタン自体を消す
+    const protectButton=document.getElementById("protectButton");
+    protectButton.style.display=P>0 ? "block" : "none";
+}
+
+function chooseMyAction(){
+    const z=solve(S,P,K);
+
+    if(Math.random()<z.sucker.num()){
+        myAction="S";
+        S--;
+        document.getElementById("act").textContent="★ 自分のすべき行動 → ふいうち";
+        writeLog(`【${turn}ターン目】自分のすべき行動：ふいうち`);
+    }else{
+        myAction="N";
+        document.getElementById("act").textContent="★ 自分のすべき行動 → 通常攻撃";
+        writeLog(`【${turn}ターン目】自分のすべき行動：通常攻撃`);
+    }
+}
+
+function start(){
+    const s=Number(document.getElementById("s0").value);
+    const p=Number(document.getElementById("p0").value);
+
+    if(!Number.isInteger(s)||s<0||s>8||
+       !Number.isInteger(p)||p<0||p>8){
+        alert("PPは0～8の整数で入力してください。");
+        return;
+    }
+
+    S=s;
+    P=p;
+    K=0;
+    turn=1;
+    myAction=null;
+    waitingProtectResult=false;
+    over=false;
+    cache.clear();
+
+    document.getElementById("setup").classList.add("hidden");
+    document.getElementById("game").classList.remove("hidden");
+    document.getElementById("choices").classList.remove("hidden");
+    document.getElementById("protectResult").classList.add("hidden");
+    document.getElementById("result").classList.add("hidden");
+    document.getElementById("log").innerHTML="";
+
+    writeLog("ゲーム開始！");
+    updateScreen();
+    chooseMyAction();
+}
+
+function nextTurn(){
+    turn++;
+    updateScreen();
+    chooseMyAction();
+}
+
+function p2(action){
+    if(over || waitingProtectResult) return;
+
+    if(action==="P" && P<=0){
+        alert("相手のまもるPPが0なので、まもるは選択できません。");
+        return;
+    }
+
+    writeLog(`【${turn}ターン目】相手：${
+        action==="A" ? "通常攻撃" :
+        action==="P" ? "まもる" : "補助技"
+    }`);
+
+    if(action==="A"){
+        if(myAction==="S"){
+            finish("自分の勝利！ ふいうちが成功しました。");
+        }else{
+            finish("自分の敗北。相手の通常攻撃が先に命中しました。");
+        }
+        return;
+    }
+
+    if(action==="T"){
+        if(myAction==="S"){
+            K=0;
+            writeLog("→ ふいうちは補助技に対して失敗。バトル継続。");
+            nextTurn();
+        }else{
+            finish("自分の勝利！ 通常攻撃が補助技に命中しました。");
+        }
+        return;
+    }
+
+    if(action==="P"){
+        waitingProtectResult=true;
+        document.getElementById("choices").classList.add("hidden");
+        document.getElementById("protectResult").classList.remove("hidden");
+        writeLog("→ 実際のまもる結果を入力してください。");
+    }
+}
+
+function protectOutcome(result){
+    if(over || !waitingProtectResult) return;
+
+    waitingProtectResult=false;
+    document.getElementById("protectResult").classList.add("hidden");
+
+    // まもるを使用したのでPP消費
+    P--;
+
+    if(result==="S"){
+        K++;
+        writeLog("→ まもる：成功");
+        writeLog("→ バトル継続。");
+        document.getElementById("choices").classList.remove("hidden");
+        nextTurn();
+    }else{
+        writeLog("→ まもる：失敗");
+
+        if(myAction==="S"){
+            finish("自分の勝利！ ふいうちが命中しました。");
+        }else{
+            finish("自分の勝利！ 通常攻撃が命中しました。");
+        }
+    }
+}
+
+function finish(message){
+    over=true;
+    waitingProtectResult=false;
+    document.getElementById("choices").classList.add("hidden");
+    document.getElementById("protectResult").classList.add("hidden");
+    document.getElementById("result").classList.remove("hidden");
+    document.getElementById("msg").textContent=message;
+    writeLog("【ゲーム終了】");
+}
+</script>
+</body>
+</html>
